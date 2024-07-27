@@ -2,7 +2,7 @@ use crate::{states::*, PROTOCOL_AUTHORITY};
 use anchor_lang::prelude::*;
 
 #[derive(Accounts)]
-pub struct UpdatePoolStatus<'info> {
+pub struct UpdatePoolOffset<'info> {
     #[account(
         address = PROTOCOL_AUTHORITY
     )]
@@ -12,10 +12,8 @@ pub struct UpdatePoolStatus<'info> {
     pub pool_state: AccountLoader<'info, PoolState>,
 }
 
-pub fn update_pool_status(ctx: Context<UpdatePoolStatus>, status: u8) -> Result<()> {
-    require_gte!(255, status);
+pub fn update_pool_offset(ctx: Context<UpdatePoolOffset>, offset: u64) -> Result<()> {
     let mut pool_state = ctx.accounts.pool_state.load_mut()?;
-    pool_state.set_status(status);
-    pool_state.recent_epoch = Clock::get()?.epoch;
+    pool_state.off_set = offset;
     Ok(())
 }

@@ -8,42 +8,15 @@ use crate::curve::fees::FEE_RATE_DENOMINATOR_VALUE;
 use anchor_lang::prelude::*;
 use instructions::*;
 
-#[cfg(not(feature = "no-entrypoint"))]
-solana_security_txt::security_txt! {
-    name: "raydium-cp-swap",
-    project_url: "https://raydium.io",
-    contacts: "link:https://immunefi.com/bounty/raydium",
-    policy: "https://immunefi.com/bounty/raydium",
-    source_code: "https://github.com/raydium-io/raydium-cp-swap",
-    preferred_languages: "en",
-    auditors: "https://github.com/raydium-io/raydium-docs/blob/master/audit/MadShield%20Q1%202024/raydium-cp-swap-v-1.0.0.pdf"
-}
+declare_id!("PkNZ3YjzrtxV16wdfcZPVKaA71dp3kAdhyHb72L2X4k");
 
-#[cfg(feature = "devnet")]
-declare_id!("CPMDWBwJDtYax9qW7AyRuVC19Cc4L4Vcy4n2BHAbHkCW");
-#[cfg(not(feature = "devnet"))]
-declare_id!("CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C");
-
-pub mod admin {
-    use anchor_lang::prelude::declare_id;
-    #[cfg(feature = "devnet")]
-    declare_id!("adMCyoCgfkg7bQiJ9aBJ59H3BXLY3r5LNLfPpQfMzBe");
-    #[cfg(not(feature = "devnet"))]
-    declare_id!("GThUX1Atko4tqhN2NaiTazWSeFWMuiUvfFnyJyUghFMJ");
-}
-
-pub mod create_pool_fee_reveiver {
-    use anchor_lang::prelude::declare_id;
-    #[cfg(feature = "devnet")]
-    declare_id!("G11FKBRaAkHAKuLCgLM6K6NUc9rTjPAznRCjZifrTQe2");
-    #[cfg(not(feature = "devnet"))]
-    declare_id!("DNXgeM9EiiaAbaWvwjHj9fQQLAX5ZsfHyvmYUNRAdNC8");
-}
-
+pub const PROTOCOL_AUTHORITY: Pubkey = pubkey!("Eo769i4Q8ExHzQ9gS9S5PexAu8zXPe5G7hYArqqsja7p");
+pub const USDC: Pubkey = pubkey!("EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v");
 pub const AUTH_SEED: &str = "vault_and_lp_mint_auth_seed";
 
 #[program]
 pub mod raydium_cp_swap {
+
     use super::*;
 
     // The configuation of AMM protocol, include trade fee and protocol fee
@@ -60,20 +33,16 @@ pub mod raydium_cp_swap {
         index: u16,
         trade_fee_rate: u64,
         protocol_fee_rate: u64,
-        fund_fee_rate: u64,
-        create_pool_fee: u64,
+        protocol_owner: Pubkey,
     ) -> Result<()> {
         assert!(trade_fee_rate < FEE_RATE_DENOMINATOR_VALUE);
         assert!(protocol_fee_rate <= FEE_RATE_DENOMINATOR_VALUE);
-        assert!(fund_fee_rate <= FEE_RATE_DENOMINATOR_VALUE);
-        assert!(fund_fee_rate + protocol_fee_rate <= FEE_RATE_DENOMINATOR_VALUE);
         instructions::create_amm_config(
             ctx,
             index,
             trade_fee_rate,
             protocol_fee_rate,
-            fund_fee_rate,
-            create_pool_fee,
+            protocol_owner,
         )
     }
 
@@ -105,20 +74,8 @@ pub mod raydium_cp_swap {
         instructions::update_pool_status(ctx, status)
     }
 
-    /// Collect the protocol fee accrued to the pool
-    ///
-    /// # Arguments
-    ///
-    /// * `ctx` - The context of accounts
-    /// * `amount_0_requested` - The maximum amount of token_0 to send, can be 0 to collect fees in only token_1
-    /// * `amount_1_requested` - The maximum amount of token_1 to send, can be 0 to collect fees in only token_0
-    ///
-    pub fn collect_protocol_fee(
-        ctx: Context<CollectProtocolFee>,
-        amount_0_requested: u64,
-        amount_1_requested: u64,
-    ) -> Result<()> {
-        instructions::collect_protocol_fee(ctx, amount_0_requested, amount_1_requested)
+    pub fn update_pool_offset(ctx: Context<UpdatePoolOffset>, offset: u64) -> Result<()> {
+        instructions::update_pool_offset(ctx, offset)
     }
 
     /// Collect the fund fee accrued to the pool
@@ -129,12 +86,8 @@ pub mod raydium_cp_swap {
     /// * `amount_0_requested` - The maximum amount of token_0 to send, can be 0 to collect fees in only token_1
     /// * `amount_1_requested` - The maximum amount of token_1 to send, can be 0 to collect fees in only token_0
     ///
-    pub fn collect_fund_fee(
-        ctx: Context<CollectFundFee>,
-        amount_0_requested: u64,
-        amount_1_requested: u64,
-    ) -> Result<()> {
-        instructions::collect_fund_fee(ctx, amount_0_requested, amount_1_requested)
+    pub fn collect_fees(ctx: Context<CollectFee>) -> Result<()> {
+        instructions::collect_fee(ctx)
     }
 
     /// Creates a pool for the given token pair and the initial price
@@ -153,52 +106,6 @@ pub mod raydium_cp_swap {
         open_time: u64,
     ) -> Result<()> {
         instructions::initialize(ctx, init_amount_0, init_amount_1, open_time)
-    }
-
-    /// Creates a pool for the given token pair and the initial price
-    ///
-    /// # Arguments
-    ///
-    /// * `ctx`- The context of accounts
-    /// * `lp_token_amount` - Pool token amount to transfer. token_a and token_b amount are set by the current exchange rate and size of the pool
-    /// * `maximum_token_0_amount` -  Maximum token 0 amount to deposit, prevents excessive slippage
-    /// * `maximum_token_1_amount` - Maximum token 1 amount to deposit, prevents excessive slippage
-    ///
-    pub fn deposit(
-        ctx: Context<Deposit>,
-        lp_token_amount: u64,
-        maximum_token_0_amount: u64,
-        maximum_token_1_amount: u64,
-    ) -> Result<()> {
-        instructions::deposit(
-            ctx,
-            lp_token_amount,
-            maximum_token_0_amount,
-            maximum_token_1_amount,
-        )
-    }
-
-    /// Withdraw lp for token0 ande token1
-    ///
-    /// # Arguments
-    ///
-    /// * `ctx`- The context of accounts
-    /// * `lp_token_amount` - Amount of pool tokens to burn. User receives an output of token a and b based on the percentage of the pool tokens that are returned.
-    /// * `minimum_token_0_amount` -  Minimum amount of token 0 to receive, prevents excessive slippage
-    /// * `minimum_token_1_amount` -  Minimum amount of token 1 to receive, prevents excessive slippage
-    ///
-    pub fn withdraw(
-        ctx: Context<Withdraw>,
-        lp_token_amount: u64,
-        minimum_token_0_amount: u64,
-        minimum_token_1_amount: u64,
-    ) -> Result<()> {
-        instructions::withdraw(
-            ctx,
-            lp_token_amount,
-            minimum_token_0_amount,
-            minimum_token_1_amount,
-        )
     }
 
     /// Swap the tokens in the pool base input amount
